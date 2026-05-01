@@ -26,13 +26,13 @@ interface Decision {
   timestamp: string;
 }
 
-type FilterAction = 'all' | 'Acknowledge' | 'Approve' | 'Investigate' | 'Resolve';
+type FilterAction = 'all' | 'acknowledge' | 'approve' | 'investigate' | 'resolve';
 
 const actionConfig: Record<string, { icon: typeof CheckCircle; color: string; bg: string }> = {
-  Acknowledge: { icon: Eye, color: 'text-slate-700', bg: 'bg-slate-100' },
-  Approve: { icon: CheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-50' },
-  Investigate: { icon: MagnifyingGlass, color: 'text-yellow-700', bg: 'bg-yellow-50' },
-  Resolve: { icon: Wrench, color: 'text-blue-700', bg: 'bg-blue-50' },
+  acknowledge: { icon: Eye, color: 'text-slate-700', bg: 'bg-slate-100' },
+  approve: { icon: CheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-50' },
+  investigate: { icon: MagnifyingGlass, color: 'text-yellow-700', bg: 'bg-yellow-50' },
+  resolve: { icon: Wrench, color: 'text-blue-700', bg: 'bg-blue-50' },
 };
 
 const containerVariants = {
@@ -58,7 +58,7 @@ export default function AuditPage() {
     fetch('/api/decisions')
       .then((res) => res.json())
       .then((data) => {
-        setDecisions(data);
+        setDecisions(data.decisions || []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -91,20 +91,20 @@ export default function AuditPage() {
   };
 
   // Apply filters
-  const filtered = decisions.filter((d) => {
-    if (filterAction !== 'all' && d.action !== filterAction) return false;
+  const filtered = Array.isArray(decisions) ? decisions.filter((d) => {
+    if (filterAction !== 'all' && d.action.toLowerCase() !== filterAction.toLowerCase()) return false;
     if (filterType !== 'all' && d.record_type !== filterType) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
         d.operator_id.toLowerCase().includes(q) ||
         d.record_id.toLowerCase().includes(q) ||
-        d.comment.toLowerCase().includes(q) ||
+        (d.comment && d.comment.toLowerCase().includes(q)) ||
         d.action.toLowerCase().includes(q)
       );
     }
     return true;
-  });
+  }) : [];
 
   const formatTimestamp = (ts: string) => {
     const d = new Date(ts);
@@ -184,10 +184,10 @@ export default function AuditPage() {
                 className="appearance-none pl-3 pr-8 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 cursor-pointer"
               >
                 <option value="all">All Actions</option>
-                <option value="Acknowledge">Acknowledge</option>
-                <option value="Approve">Approve</option>
-                <option value="Investigate">Investigate</option>
-                <option value="Resolve">Resolve</option>
+                <option value="acknowledge">Acknowledge</option>
+                <option value="approve">Approve</option>
+                <option value="investigate">Investigate</option>
+                <option value="resolve">Resolve</option>
               </select>
               <CaretDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             </div>
