@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
  Drop, Warning, Gauge, Broadcast, Robot, BellRinging,
  ArrowsClockwise, Shuffle, Lightning, CheckCircle, ArrowRight,
- Scales, ChartLine
+ Scales, ChartLine, ChartLineUp
 } from '@phosphor-icons/react';
 import { ZoneHeatmap, type NetworkConnection } from '@/components/map/ZoneHeatmap';
 import { aStar, primsMST, type GraphNode } from '@/lib/graph-algorithms';
@@ -98,8 +98,16 @@ function ZoneDetailPanel({ zone, onClose, onAction }: ZoneDetailPanelProps) {
    fetch(`/api/water-quality?zoneId=${zone.zone_id}`).then(r => r.json()).catch(() => null),
    fetch(`/api/forecast/demand?zoneId=${zone.zone_id}`).then(r => r.json()).catch(() => null),
   ]).then(([sustData, qualData, foreData]) => {
-   if (sustData && !sustData.error) setSustainability(sustData);
-   if (qualData && !qualData.error) setQuality(qualData);
+   if (sustData && !sustData.error) {
+    // API returns { zones: [...] } — find the matching zone object
+    const zoneEntry = sustData.zones?.find((z: any) => z.zone_id === zone.zone_id) ?? sustData;
+    setSustainability(zoneEntry);
+   }
+   if (qualData && !qualData.error) {
+    // API returns { reports: [...] } — find the matching zone report
+    const zoneReport = qualData.reports?.find((r: any) => r.zone_id === zone.zone_id) ?? qualData;
+    setQuality(zoneReport);
+   }
    if (foreData && !foreData.error) setForecast(foreData);
   }).finally(() => setLoading(false));
  }, [zone.zone_id]);
@@ -114,9 +122,14 @@ function ZoneDetailPanel({ zone, onClose, onAction }: ZoneDetailPanelProps) {
   onAction(action, zone.zone_name);
  };
 
+ // Format helpers
+ const fmtML = (v: number | undefined) => v != null ? Math.round(v * 10) / 10 : '—';
+ const fmtNum = (v: number | undefined, dp = 1) => v != null ? v.toFixed(dp) : '—';
+
  return (
   <motion.div key="zone-detail" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="flex flex-col gap-3">
    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    {/* Header */}
     <div className={`px-4 py-3 flex items-start justify-between ${SEVERITY_BG[zone.severity] ?? 'bg-slate-50'}`}>
      <div>
       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-800">{zone.zone_id}</p>
@@ -126,80 +139,127 @@ function ZoneDetailPanel({ zone, onClose, onAction }: ZoneDetailPanelProps) {
       <span className="text-lg leading-none">×</span>
      </button>
     </div>
-    <div className="px-4 py-3">
-     <div className="flex items-center gap-2 mb-2">
-      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-lg border ${
-       zone.severity === 'Critical' ? 'bg-red-500/10 text-red-600 border-red-200/50'
-       : zone.severity === 'Probable' ? 'bg-orange-500/10 text-orange-600 border-orange-200/50'
-       : zone.severity === 'Suspicious' ? 'bg-amber-500/10 text-amber-600 border-amber-200/50'
-       : 'bg-emerald-500/10 text-emerald-600 border-emerald-200/50'
-      }`}>{zone.severity}</span>
-      {zone.anomaly_type && (
-       <span className="text-[10px] font-bold tracking-wider uppercase bg-slate-500/10 text-slate-600 border border-slate-200/50 px-2 py-0.5 rounded-lg">{zone.anomaly_type}</span>
-      )}
-     </div>
+
+    {/* Badges */}
+    <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap">
+     <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-lg border ${
+      zone.severity === 'Critical' ? 'bg-red-500/10 text-red-600 border-red-200/50'
+      : zone.severity === 'Probable' ? 'bg-orange-500/10 text-orange-600 border-orange-200/50'
+      : zone.severity === 'Suspicious' ? 'bg-amber-500/10 text-amber-600 border-amber-200/50'
+      : 'bg-emerald-500/10 text-emerald-600 border-emerald-200/50'
+     }`}>{zone.severity}</span>
+     {zone.anomaly_type && (
+      <span className="text-[10px] font-bold tracking-wider uppercase bg-slate-500/10 text-slate-600 border border-slate-200/50 px-2 py-0.5 rounded-lg">
+       {zone.anomaly_type.replace(/_/g, ' ')}
+      </span>
+     )}
     </div>
-    <div className="grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100">
-     <div className="px-3 py-2.5 text-center">
+
+    {/* Key Metrics — 3 compact pills, values properly truncated */}
+    <div className="grid grid-cols-3 border-t border-slate-100">
+     <div className="px-3 py-2.5 text-center overflow-hidden">
       <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">Demand</p>
-      <p className="text-sm font-mono font-bold text-slate-900">{zone.current_consumption_ML}<span className="text-[9px] text-slate-400 ml-0.5">ML</span></p>
+      <p className="text-sm font-mono font-bold text-slate-900 truncate">
+       {fmtML(zone.current_consumption_ML)}<span className="text-[9px] text-slate-400 ml-0.5">ML</span>
+      </p>
      </div>
-     <div className="px-3 py-2.5 text-center">
+     <div className="px-3 py-2.5 text-center border-x border-slate-100 overflow-hidden">
       <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">Pressure</p>
-      <p className="text-sm font-mono font-bold text-slate-900">{zone.pressure_bar?.toFixed(1)}<span className="text-[9px] text-slate-400 ml-0.5">bar</span></p>
+      <p className="text-sm font-mono font-bold text-slate-900 truncate">
+       {zone.pressure_bar != null ? zone.pressure_bar.toFixed(1) : '—'}<span className="text-[9px] text-slate-400 ml-0.5">bar</span>
+      </p>
      </div>
-     <div className="px-3 py-2.5 text-center">
+     <div className="px-3 py-2.5 text-center overflow-hidden">
       <p className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">Supplied</p>
-      <p className={`text-sm font-mono font-bold ${zone.fulfillment_pct >= 80 ? 'text-emerald-600' : 'text-red-600'}`}>{zone.fulfillment_pct}<span className="text-[9px] text-slate-400 ml-0.5">%</span></p>
+      <p className={`text-sm font-mono font-bold truncate ${zone.fulfillment_pct >= 80 ? 'text-emerald-600' : 'text-red-600'}`}>
+       {zone.fulfillment_pct}<span className="text-[9px] text-slate-400 ml-0.5">%</span>
+      </p>
      </div>
     </div>
 
-    {/* Dynamic multi-tier context panel */}
+    {/* Dynamic detail panels */}
     <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50 space-y-3">
      {loading ? (
-      <p className="text-xs text-slate-500 animate-pulse">Loading detailed analytics...</p>
+      <div className="space-y-2">
+       {[1,2,3].map(i => <div key={i} className="h-4 bg-slate-100 rounded-lg animate-pulse" style={{ width: `${60 + i * 12}%` }} />)}
+      </div>
      ) : (
       <>
+       {/* Sustainability */}
        {sustainability && (
         <div>
-         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">5-Year Sustainability</p>
-         <div className="grid grid-cols-2 gap-2 text-xs">
+         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">5-Year Sustainability</p>
+         <div className="grid grid-cols-2 gap-2">
           <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
-           <p className="text-[10px] text-slate-500">Water Table</p>
-           <p className="font-semibold font-mono text-slate-900">{sustainability.water_table_depth_m}m</p>
+           <p className="text-[10px] text-slate-400 mb-0.5">Water Table</p>
+           <p className="font-bold font-mono text-slate-900 text-xs">
+            {fmtNum(sustainability.water_table_depth_m)}<span className="text-slate-400 font-normal">m</span>
+           </p>
           </div>
           <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
-           <p className="text-[10px] text-slate-500">Sustainability</p>
-           <p className={`font-bold text-xs ${sustainability.sustainable ? 'text-emerald-600' : 'text-red-600'}`}>{sustainability.sustainable ? 'Viable' : 'At Risk'}</p>
+           <p className="text-[10px] text-slate-400 mb-0.5">NRW Loss</p>
+           <p className="font-bold font-mono text-slate-900 text-xs">
+            {fmtNum(sustainability.nrw_percent)}<span className="text-slate-400 font-normal">%</span>
+           </p>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
+           <p className="text-[10px] text-slate-400 mb-0.5">Storage</p>
+           <p className="font-bold font-mono text-slate-900 text-xs">
+            {fmtNum(sustainability.storage_level_pct, 0)}<span className="text-slate-400 font-normal">%</span>
+           </p>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
+           <p className="text-[10px] text-slate-400 mb-0.5">Viability</p>
+           <p className={`font-bold text-xs ${sustainability.water_quality?.status === 'potable' || sustainability.fulfillment_percent >= 80 ? 'text-emerald-600' : 'text-red-600'}`}>
+            {sustainability.fulfillment_percent >= 80 ? 'Viable' : 'At Risk'}
+           </p>
           </div>
          </div>
         </div>
        )}
 
+       {/* Water Quality */}
        {quality && (
         <div>
-         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">Water Quality Metrics</p>
-         <div className="grid grid-cols-2 gap-2 text-xs">
+         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Water Quality</p>
+         <div className="grid grid-cols-2 gap-2">
           <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
-           <p className="text-[10px] text-slate-500">pH / TDS</p>
-           <p className="font-semibold font-mono text-slate-900">{quality.parameters?.pH?.value} / {quality.parameters?.TDS_mg_L?.value}</p>
+           <p className="text-[10px] text-slate-400 mb-0.5">pH / TDS</p>
+           <p className="font-bold font-mono text-slate-900 text-xs">
+            {fmtNum(quality.parameters?.pH?.value)} / {quality.parameters?.TDS_mg_L?.value ?? '—'}<span className="text-slate-400 font-normal text-[10px]"> mg/L</span>
+           </p>
           </div>
           <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
-           <p className="text-[10px] text-slate-500">Status</p>
-           <p className={`font-bold text-xs ${quality.status === 'POTABLE' ? 'text-emerald-600' : 'text-red-600'}`}>{quality.status}</p>
+           <p className="text-[10px] text-slate-400 mb-0.5">Status</p>
+           <p className={`font-bold text-xs ${quality.status === 'POTABLE' ? 'text-emerald-600' : 'text-red-600'}`}>
+            {quality.status ?? '—'}
+           </p>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
+           <p className="text-[10px] text-slate-400 mb-0.5">Turbidity</p>
+           <p className="font-bold font-mono text-slate-900 text-xs">
+            {fmtNum(quality.parameters?.turbidity_NTU?.value, 2)}<span className="text-slate-400 font-normal"> NTU</span>
+           </p>
+          </div>
+          <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
+           <p className="text-[10px] text-slate-400 mb-0.5">Cl₂ Residual</p>
+           <p className={`font-bold font-mono text-xs ${
+            (quality.parameters?.residual_chlorine_mg_L?.value ?? 0) >= 0.2 ? 'text-emerald-700' : 'text-red-600'
+           }`}>
+            {fmtNum(quality.parameters?.residual_chlorine_mg_L?.value, 2)}<span className="text-slate-400 font-normal"> mg/L</span>
+           </p>
           </div>
          </div>
         </div>
        )}
 
+       {/* Forecast */}
        {forecast && forecast.daily_summary && (
         <div>
-         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">24h Peak Forecast</p>
-         <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
-           <p className="text-[10px] text-slate-500">Peak Volume</p>
-           <p className="font-semibold font-mono text-slate-900">{forecast.daily_summary.peak_ML_per_hour} ML</p>
-          </div>
+         <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">24h Demand Forecast</p>
+         <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
+          <p className="text-[10px] text-slate-400 mb-0.5">Peak Volume</p>
+          <p className="font-bold font-mono text-slate-900 text-xs">{forecast.daily_summary.peak_ML_per_hour} ML/hr</p>
          </div>
         </div>
        )}
@@ -207,6 +267,7 @@ function ZoneDetailPanel({ zone, onClose, onAction }: ZoneDetailPanelProps) {
      )}
     </div>
 
+    {/* Action buttons */}
     <div className="px-4 py-3 border-t border-slate-100">
      {actionLogged ? (
       <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">✓ {actionLogged} logged</p>
@@ -251,10 +312,55 @@ export default function Dashboard() {
  const [fairnessWeight, setFairnessWeight] = useState(0.5);
  const [pressureWeight, setPressureWeight] = useState(0.3);
  const [emergencyWeight, setEmergencyWeight] = useState(0.2);
+ const [redistributionData, setRedistributionData] = useState<any>(null);
+
+ // ── Real-time Bangalore live data state ────────────────────────
+ const [bangaloreData, setBangaloreData] = useState<{
+  temperature_c: number;
+  humidity_pct: number;
+  rainfall_mm_today: number;
+  description: string;
+  cauvery_fill_pct: number;
+  tg_halli_fill_pct: number;
+  total_supply_MLD: number;
+  nrw_pct: number;
+  seasonal_modifier: number;
+  season: string;
+  timestamp: string;
+  data_freshness: string;
+ } | null>(null);
+ const [bangaloreLoading, setBangaloreLoading] = useState(false);
+
+
+ const fetchBangaloreLive = useCallback(async () => {
+  setBangaloreLoading(true);
+  try {
+   const res = await fetch('/api/bangalore-live');
+   if (res.ok) {
+    const data = await res.json();
+    setBangaloreData({
+     temperature_c: data.weather?.temperature_c ?? 32,
+     humidity_pct: data.weather?.humidity_pct ?? 58,
+     rainfall_mm_today: data.weather?.rainfall_mm_today ?? 0,
+     description: data.weather?.description ?? 'Clear sky',
+     cauvery_fill_pct: data.reservoir?.cauvery_fill_pct ?? 22,
+     tg_halli_fill_pct: data.reservoir?.tg_halli_fill_pct ?? 28,
+     total_supply_MLD: data.system?.total_supply_MLD ?? 2225,
+     nrw_pct: data.system?.nrw_pct ?? 27.2,
+     seasonal_modifier: data.system?.seasonal_modifier ?? 1.25,
+     season: data.system?.season ?? 'pre_monsoon',
+     timestamp: data.timestamp ?? new Date().toISOString(),
+     data_freshness: data.data_freshness ?? 'live',
+    });
+   }
+  } catch { /* non-blocking */ } finally {
+   setBangaloreLoading(false);
+  }
+ }, []);
 
  const addAlert = useCallback((msg: string, type: Alert['type'] = 'info') => {
   setAlerts(prev => [
-   { id: Date.now().toString(), time: new Date().toLocaleTimeString(), msg, type },
+   { id: `${Date.now().toString()}-${Math.random().toString(36).substring(2, 9)}`, time: new Date().toLocaleTimeString(), msg, type },
    ...prev.slice(0, 19),
   ]);
  }, []);
@@ -268,6 +374,7 @@ export default function Dashboard() {
   setConnections(anomRes.network_connections ?? []);
   setCriticalCount(anomRes.critical_count ?? 0);
   setDeficitCount(redisRes.deficit_count ?? 0);
+  setRedistributionData(redisRes);
  }, []);
 
  const fetchAiAdvice = useCallback(async (
@@ -308,7 +415,13 @@ export default function Dashboard() {
   }
  }, []);
 
- useEffect(() => { fetchData(); }, [fetchData]);
+ useEffect(() => { fetchData(); fetchBangaloreLive(); }, [fetchData, fetchBangaloreLive]);
+
+ // Refresh Bangalore live data every 15 minutes
+ useEffect(() => {
+  const interval = setInterval(fetchBangaloreLive, 15 * 60 * 1000);
+  return () => clearInterval(interval);
+ }, [fetchBangaloreLive]);
 
  useEffect(() => {
   if (!liveMode) return;
@@ -415,7 +528,7 @@ export default function Dashboard() {
   if (path.length > 0) addAlert(`Auto-Route (A*): ${src.replace('Zone-', '')} → ${dst.replace('Zone-', '')} via ${path.length - 1} hops`, 'info');
  }, [zones, graph, addAlert]);
 
- const handleSimulateBurst = useCallback(() => {
+ const handleSimulateBurst = useCallback(async () => {
   const candidates = zones.filter(z => !burstZoneIds.includes(z.zone_id));
   if (candidates.length === 0) return;
   const target = candidates[Math.floor(Math.random() * candidates.length)];
@@ -424,16 +537,30 @@ export default function Dashboard() {
   setMode('disaster');
   addAlert(`🚨 PIPE BURST simulated at ${target.zone_name}! Pressure dropping.`, 'critical');
   fetchAiAdvice(zones, newBurstIds, deficitCount, avgPressure, 'disaster');
- }, [zones, burstZoneIds, deficitCount, avgPressure, addAlert, fetchAiAdvice]);
 
- const handleClearDisaster = useCallback(() => {
+  // Sync state to backend so Redistribution engine detects the burst
+  await fetch('/api/simulate-burst', {
+   method: 'POST',
+   body: JSON.stringify({ zone_id: target.zone_id, zone_name: target.zone_name })
+  });
+  fetchData();
+ }, [zones, burstZoneIds, deficitCount, avgPressure, addAlert, fetchAiAdvice, fetchData]);
+
+ const handleClearDisaster = useCallback(async () => {
   setBurstZoneIds([]);
   setMode('normal');
   setRoutePath([]);
   setRouteSelection([]);
   addAlert('System restored — all pipes nominal.', 'info');
   fetchAiAdvice(zones, [], deficitCount, avgPressure, 'normal');
- }, [zones, deficitCount, avgPressure, addAlert, fetchAiAdvice]);
+
+  // Reset backend state
+  await fetch('/api/demo', {
+   method: 'POST',
+   body: JSON.stringify({ scenario_id: 'reset' })
+  });
+  fetchData();
+ }, [zones, deficitCount, avgPressure, addAlert, fetchAiAdvice, fetchData]);
 
  const handleToggleRouting = useCallback(() => {
   setRoutingMode(prev => !prev);
@@ -459,6 +586,88 @@ export default function Dashboard() {
 
  return (
   <div className="flex flex-col min-h-[100dvh] bg-slate-50/50">
+
+   {/* ── Real-Time Bangalore Live Data Banner ── */}
+   <div className="w-full bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-950 border-b border-blue-800/50 px-6 py-2.5 flex items-center justify-between flex-wrap gap-3">
+    <div className="flex items-center gap-2.5">
+     <span className={`w-2 h-2 rounded-full ${bangaloreLoading ? 'bg-yellow-400 animate-pulse' : bangaloreData ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+     <span className="text-[10px] font-black uppercase tracking-widest text-blue-300">🇮🇳 Live · Bangalore BWSSB</span>
+     {bangaloreData && (
+      <span className="text-[10px] text-blue-400 font-mono">
+       {bangaloreData.data_freshness === 'live' ? '● Open-Meteo' : bangaloreData.data_freshness === 'cached' ? '◌ cached' : '○ estimated'}
+      </span>
+     )}
+    </div>
+
+    {bangaloreData ? (
+     <div className="flex items-center gap-5 flex-wrap">
+      {/* Weather */}
+      <div className="flex items-center gap-1.5">
+       <span className="text-lg">{bangaloreData.rainfall_mm_today > 2 ? '🌧️' : bangaloreData.temperature_c > 33 ? '☀️' : '⛅'}</span>
+       <div>
+        <p className="text-[10px] text-blue-300 uppercase font-bold tracking-wider leading-none">Weather</p>
+        <p className="text-xs font-mono font-bold text-white">{bangaloreData.temperature_c}°C · {bangaloreData.humidity_pct}% RH · {bangaloreData.rainfall_mm_today}mm</p>
+       </div>
+      </div>
+
+      {/* Separator */}
+      <div className="w-px h-6 bg-blue-700/50" />
+
+      {/* Reservoirs */}
+      <div className="flex items-center gap-1.5">
+       <span className="text-base">💧</span>
+       <div>
+        <p className="text-[10px] text-blue-300 uppercase font-bold tracking-wider leading-none">Reservoirs</p>
+        <p className="text-xs font-mono font-bold text-white">
+         KRS <span className={bangaloreData.cauvery_fill_pct < 30 ? 'text-red-400' : bangaloreData.cauvery_fill_pct < 60 ? 'text-amber-400' : 'text-emerald-400'}>{bangaloreData.cauvery_fill_pct}%</span>
+         {' · '}
+         TG Halli <span className={bangaloreData.tg_halli_fill_pct < 30 ? 'text-red-400' : bangaloreData.tg_halli_fill_pct < 60 ? 'text-amber-400' : 'text-emerald-400'}>{bangaloreData.tg_halli_fill_pct}%</span>
+        </p>
+       </div>
+      </div>
+
+      {/* Separator */}
+      <div className="w-px h-6 bg-blue-700/50" />
+
+      {/* System Supply */}
+      <div className="flex items-center gap-1.5">
+       <span className="text-base">🏭</span>
+       <div>
+        <p className="text-[10px] text-blue-300 uppercase font-bold tracking-wider leading-none">Total Supply</p>
+        <p className="text-xs font-mono font-bold text-white">{bangaloreData.total_supply_MLD.toLocaleString()} MLD · NRW {bangaloreData.nrw_pct}%</p>
+       </div>
+      </div>
+
+      {/* Separator */}
+      <div className="w-px h-6 bg-blue-700/50" />
+
+      {/* Season */}
+      <div className="flex items-center gap-1.5">
+       <span className="text-base">{bangaloreData.season === 'monsoon' ? '🌊' : bangaloreData.season === 'summer' || bangaloreData.season === 'pre_monsoon' ? '🔥' : '🌿'}</span>
+       <div>
+        <p className="text-[10px] text-blue-300 uppercase font-bold tracking-wider leading-none">Season</p>
+        <p className="text-xs font-mono font-bold text-white capitalize">{bangaloreData.season.replace('_', ' ')} · {bangaloreData.seasonal_modifier}× demand</p>
+       </div>
+      </div>
+
+      {/* Timestamp */}
+      <div className="text-[10px] font-mono text-blue-500">
+       {new Date(bangaloreData.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} IST
+      </div>
+     </div>
+    ) : (
+     <div className="text-[10px] text-blue-500 font-mono animate-pulse">Fetching live Bangalore data...</div>
+    )}
+
+    <button
+     onClick={fetchBangaloreLive}
+     disabled={bangaloreLoading}
+     className="text-[10px] font-bold uppercase tracking-wider text-blue-400 hover:text-white transition-colors flex items-center gap-1 disabled:opacity-40"
+    >
+     <ArrowsClockwise size={10} className={bangaloreLoading ? 'animate-spin' : ''} /> Refresh
+    </button>
+   </div>
+
    {/* ── Stat cards ── */}
    <div className="w-full border-b border-slate-200/60 bg-gradient-to-r from-white via-slate-50/40 to-white px-6 py-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5">
     <StatCard label="System Pressure" value={`${avgPressure} bar`} sub={pressureStatus} color={pressureStatus === 'Normal' ? 'text-emerald-600' : 'text-orange-600'} />
@@ -931,6 +1140,69 @@ export default function Dashboard() {
         </div>
        </div>
       </div>
+
+      {/* Before vs After Impact Table */}
+      {redistributionData && redistributionData.baseline_fairness && (
+       <div className="col-span-1 md:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-sm hover:shadow transition-all duration-300 mt-2">
+        <div className="flex items-center gap-2 mb-4">
+         <div className="p-2 bg-emerald-50 rounded-xl border border-emerald-100">
+          <ChartLineUp size={20} weight="fill" className="text-emerald-600" />
+         </div>
+         <div>
+          <h3 className="font-bold text-slate-800 text-sm">Before vs After Redistribution</h3>
+          <p className="text-[10px] text-slate-400">Comparing network fairness metrics after handling anomalies</p>
+         </div>
+        </div>
+        
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
+         <table className="w-full text-left text-sm whitespace-nowrap">
+          <thead className="bg-slate-50/80 border-b border-slate-100 text-[10px] uppercase font-bold tracking-wider text-slate-500">
+           <tr>
+            <th className="px-4 py-3">Metric</th>
+            <th className="px-4 py-3 text-right">Before (Anomalies)</th>
+            <th className="px-4 py-3 text-right">After (Optimized)</th>
+            <th className="px-4 py-3 text-right">Difference</th>
+           </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 font-mono">
+           <tr className="hover:bg-slate-50/50 transition-colors">
+            <td className="px-4 py-3 font-semibold text-slate-700 font-sans text-xs">Gini Coefficient <span className="font-normal text-[10px] text-slate-400 block">Lower is more fair</span></td>
+            <td className="px-4 py-3 text-right text-slate-600">{redistributionData.baseline_fairness.gini_coefficient.toFixed(3)}</td>
+            <td className="px-4 py-3 text-right font-bold text-indigo-600">{redistributionData.projected_fairness.gini_coefficient.toFixed(3)}</td>
+            <td className="px-4 py-3 text-right font-bold text-emerald-600">
+             {redistributionData.gini_improvement_percent > 0 ? `-${redistributionData.gini_improvement_percent.toFixed(1)}%` : '—'}
+            </td>
+           </tr>
+           <tr className="hover:bg-slate-50/50 transition-colors">
+            <td className="px-4 py-3 font-semibold text-slate-700 font-sans text-xs">Mean Fulfillment <span className="font-normal text-[10px] text-slate-400 block">System-wide average</span></td>
+            <td className="px-4 py-3 text-right text-slate-600">{(redistributionData.baseline_fairness.mean_fulfillment * 100).toFixed(1)}%</td>
+            <td className="px-4 py-3 text-right font-bold text-slate-800">{(redistributionData.projected_fairness.mean_fulfillment * 100).toFixed(1)}%</td>
+            <td className="px-4 py-3 text-right font-bold text-slate-400">
+             {((redistributionData.projected_fairness.mean_fulfillment - redistributionData.baseline_fairness.mean_fulfillment) * 100).toFixed(1)}%
+            </td>
+           </tr>
+           <tr className="hover:bg-slate-50/50 transition-colors">
+            <td className="px-4 py-3 font-semibold text-slate-700 font-sans text-xs">Minimum Fulfillment <span className="font-normal text-[10px] text-slate-400 block">Most stressed zone</span></td>
+            <td className="px-4 py-3 text-right text-red-500">{(redistributionData.baseline_fairness.min_fulfillment * 100).toFixed(1)}%</td>
+            <td className="px-4 py-3 text-right font-bold text-emerald-600">{(redistributionData.projected_fairness.min_fulfillment * 100).toFixed(1)}%</td>
+            <td className="px-4 py-3 text-right font-bold text-emerald-600">
+             +{((redistributionData.projected_fairness.min_fulfillment - redistributionData.baseline_fairness.min_fulfillment) * 100).toFixed(1)}%
+            </td>
+           </tr>
+           <tr className="hover:bg-slate-50/50 transition-colors">
+            <td className="px-4 py-3 font-semibold text-slate-700 font-sans text-xs">Maximum Fulfillment <span className="font-normal text-[10px] text-slate-400 block">Most surplus zone</span></td>
+            <td className="px-4 py-3 text-right text-blue-500">{(redistributionData.baseline_fairness.max_fulfillment * 100).toFixed(1)}%</td>
+            <td className="px-4 py-3 text-right font-bold text-slate-800">{(redistributionData.projected_fairness.max_fulfillment * 100).toFixed(1)}%</td>
+            <td className="px-4 py-3 text-right font-bold text-slate-500">
+             {((redistributionData.projected_fairness.max_fulfillment - redistributionData.baseline_fairness.max_fulfillment) * 100).toFixed(1)}%
+            </td>
+           </tr>
+          </tbody>
+         </table>
+        </div>
+       </div>
+      )}
+
      </div>
     )}
 
